@@ -19,4 +19,17 @@ public class ApiResponse<T> {
         r.message = message;
         return r;
     }
+
+    // ===== getter =====
+    public int getCode() {
+        return code;
+    }
+
+    public String getMessage() {
+        return message;
+    }
+
+    public T getData() {
+        return data;
+    }
 }

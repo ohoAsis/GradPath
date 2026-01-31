@@ -52,6 +52,22 @@ public class Application {
         return application;
     }
 
+    public void markSubmitted() {
+        this.status = ApplicationStatus.SUBMITTED;
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    public void markApproved() {
+        this.status = ApplicationStatus.APPROVED;
+        this.updatedAt = LocalDateTime.now();
+    }
+
+    public void markRejected() {
+        this.status = ApplicationStatus.REJECTED;
+        this.updatedAt = LocalDateTime.now();
+    }
+
+
     // ===== getter =====
 
     public Long getId() {
