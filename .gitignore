@@ -1,4 +1,5 @@
 HELP.md
+README.human.md
 target/
 .mvn/wrapper/maven-wrapper.jar
 !**/src/main/**/target/
@@ -37,3 +38,6 @@ build/
 
 # Logs
 *.log
+
+### Qoder ###
+.qoder

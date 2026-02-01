@@ -13,6 +13,11 @@ public enum ApplicationStatus {
     SUBMITTED,
 
     /**
+     * 审核中
+     */
+    UNDER_REVIEW,
+
+    /**
      * 审核通过
      */
     APPROVED,

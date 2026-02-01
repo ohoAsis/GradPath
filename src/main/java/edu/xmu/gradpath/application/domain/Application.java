@@ -66,7 +66,15 @@ public class Application {
         this.status = ApplicationStatus.REJECTED;
         this.updatedAt = LocalDateTime.now();
     }
-
+    /**
+     * 标记申请进入审核中状态
+     * 状态跃迁：SUBMITTED -> UNDER_REVIEW
+     */
+    public void markUnderReview() {
+        this.status = ApplicationStatus.UNDER_REVIEW;
+        this.updatedAt = LocalDateTime.now();
+    }
+    
 
     // ===== getter =====
 
