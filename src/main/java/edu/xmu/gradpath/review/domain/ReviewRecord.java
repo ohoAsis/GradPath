@@ -18,6 +18,12 @@ public class ReviewRecord {
     private Long materialId;
 
     /**
+     * 材料版本
+     */
+    @Column(name = "material_version", nullable = false)
+    private Integer materialVersion;
+
+    /**
      * 审核员 ID
      */
     @Column(name = "reviewer_id", nullable = false)
@@ -49,8 +55,9 @@ public class ReviewRecord {
     /**
      * 构造器：创建 ReviewRecord
      */
-    public ReviewRecord(Long materialId, Long reviewerId, ReviewDecision decision, String comment) {
+    public ReviewRecord(Long materialId, Integer materialVersion, Long reviewerId, ReviewDecision decision, String comment) {
         this.materialId = materialId;
+        this.materialVersion = materialVersion;
         this.reviewerId = reviewerId;
         this.decision = decision;
         this.comment = comment;
@@ -65,6 +72,10 @@ public class ReviewRecord {
 
     public Long getMaterialId() {
         return materialId;
+    }
+
+    public Integer getMaterialVersion() {
+        return materialVersion;
     }
 
     public Long getReviewerId() {

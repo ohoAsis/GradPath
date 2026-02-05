@@ -13,13 +13,114 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Objects;
+import java.util.Comparator;
 
 @Service
 public class ApplicationService {
 
+    /**
+     * 审核聚合结果枚举
+     * 仅供 Service 内部使用，不暴露给外部
+     */
+    private enum ReviewAggregationResult {
+
+        /**
+         * 不完整：当前审核事实不足以支持确定性结论
+         */
+        INCOMPLETE,
+
+        /**
+         * 全部通过：至少存在一条 ReviewRecord，且所有 decision = PASS
+         */
+        ALL_PASS,
+
+        /**
+         * 存在拒绝：存在任意一条 decision = REJECT
+         */
+        HAS_REJECT,
+
+        /**
+         * 冲突：同时存在 PASS 与 REJECT，且当前规则未定义裁决方式
+         */
+        CONFLICT
+    }
+
     private final ApplicationRepository applicationRepository;
     private final MaterialRepository materialRepository;
     private final ReviewRecordRepository reviewRecordRepository;
+
+    /**
+     * 最小审核员数量
+     */
+    private static final int MIN_REVIEWERS = 2;
+
+    /**
+     * Material 不完整原因枚举
+     */
+    private enum MaterialIncompleteReason {
+        NO_REVIEWS,            // 折叠后 reviewerCount == 0
+        NOT_ENOUGH_REVIEWERS   // 0 < reviewerCount < MIN_REVIEWERS
+    }
+
+    /**
+     * 审核员角色枚举
+     */
+    private enum ReviewerRole {
+        NORMAL, ARBITER
+    }
+
+    /**
+     * 审核聚合信息
+     */
+    private static class ReviewAggregationInfo {
+        private final ReviewAggregationResult result;
+        private final MaterialIncompleteReason incompleteReason;
+        private final int reviewerCount;
+
+        public ReviewAggregationInfo(ReviewAggregationResult result, MaterialIncompleteReason incompleteReason, int reviewerCount) {
+            this.result = result;
+            this.incompleteReason = incompleteReason;
+            this.reviewerCount = reviewerCount;
+        }
+
+        public ReviewAggregationResult getResult() {
+            return result;
+        }
+
+        public MaterialIncompleteReason getIncompleteReason() {
+            return incompleteReason;
+        }
+
+        public int getReviewerCount() {
+            return reviewerCount;
+        }
+    }
+
+    /**
+     * Application 审核阻塞原因枚举
+     */
+    private enum ApplicationReviewBlockReason {
+        INSUFFICIENT_REVIEWERS,
+        CONFLICTING_REVIEWS
+    }
+
+    /**
+     * 仲裁审核员集合
+     */
+    private static final java.util.Set<Long> ARBITER_REVIEWER_IDS = java.util.Set.of(1L);
+
+    /**
+     * 获取审核员角色
+     * @param reviewerId 审核员 ID
+     * @return ReviewerRole
+     */
+    private ReviewerRole getReviewerRole(Long reviewerId) {
+        if (ARBITER_REVIEWER_IDS.contains(reviewerId)) {
+            return ReviewerRole.ARBITER;
+        }
+        return ReviewerRole.NORMAL;
+    }
 
     public ApplicationService(ApplicationRepository applicationRepository, MaterialRepository materialRepository, ReviewRecordRepository reviewRecordRepository) {
         this.applicationRepository = applicationRepository;
@@ -134,6 +235,96 @@ public class ApplicationService {
     }
 
     /**
+     * 聚合某个 Material 的 ReviewRecord 语义
+     * @param reviewRecords ReviewRecord 列表
+     * @param materialVersion Material 当前版本
+     * @return ReviewAggregationInfo
+     */
+    private ReviewAggregationInfo aggregateReviewResults(List<ReviewRecord> reviewRecords, Integer materialVersion) {
+        // 过滤出 materialVersion == material.version 的记录
+        List<ReviewRecord> filteredRecords = reviewRecords.stream()
+                .filter(record -> Objects.equals(record.getMaterialVersion(), materialVersion))
+                .toList();
+
+        // 对同一审核员在同一 MaterialVersion 下的多条 ReviewRecord 做折叠（last-write-wins）
+        List<ReviewRecord> foldedRecords = filteredRecords.stream()
+                // 对 reviewerId 做非空保护
+                .filter(record -> {
+                    if (record.getReviewerId() == null) {
+                        throw new BizException(400, "reviewerId missing in review record");
+                    }
+                    return true;
+                })
+                // 按 reviewerId 分组
+                .collect(java.util.stream.Collectors.groupingBy(ReviewRecord::getReviewerId))
+                // 每组只保留 createdAt 最新的一条
+                .values().stream()
+                .flatMap(group -> group.stream()
+                        .max(java.util.Comparator.comparing(ReviewRecord::getCreatedAt, java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder())))
+                        .stream())
+                .toList();
+
+        // reviewerCount = foldedRecords.size()
+        int reviewerCount = foldedRecords.size();
+
+        // 仲裁优先逻辑
+        List<ReviewRecord> arbiterRecords = foldedRecords.stream()
+                .filter(record -> getReviewerRole(record.getReviewerId()) == ReviewerRole.ARBITER)
+                .toList();
+
+        if (!arbiterRecords.isEmpty()) {
+            // 取 arbiterRecords 中 createdAt 最新的一条
+            ReviewRecord latestArbiterRecord = arbiterRecords.stream()
+                    .max(java.util.Comparator.comparing(
+                            ReviewRecord::getCreatedAt,
+                            java.util.Comparator.nullsLast(java.util.Comparator.naturalOrder())
+                    ))
+                    .orElseThrow();
+
+            if (latestArbiterRecord != null) {
+                // 仲裁存在时，不再进入 MIN_REVIEWERS 与 CONFLICT 判定逻辑（仲裁直接裁决）
+                if (latestArbiterRecord.getDecision() == ReviewDecision.REJECT) {
+                    return new ReviewAggregationInfo(ReviewAggregationResult.HAS_REJECT, null, reviewerCount);
+                } else {
+                    return new ReviewAggregationInfo(ReviewAggregationResult.ALL_PASS, null, reviewerCount);
+                }
+            }
+        }
+
+        // 返回规则
+        if (reviewerCount == 0) {
+            return new ReviewAggregationInfo(ReviewAggregationResult.INCOMPLETE, MaterialIncompleteReason.NO_REVIEWS, reviewerCount);
+        } else if (reviewerCount < MIN_REVIEWERS) {
+            return new ReviewAggregationInfo(ReviewAggregationResult.INCOMPLETE, MaterialIncompleteReason.NOT_ENOUGH_REVIEWERS, reviewerCount);
+        } else {
+            boolean hasPass = false;
+            boolean hasReject = false;
+
+            // 检查是否存在 PASS 和 REJECT
+            for (ReviewRecord reviewRecord : foldedRecords) {
+                if (reviewRecord.getDecision() == ReviewDecision.PASS) {
+                    hasPass = true;
+                } else if (reviewRecord.getDecision() == ReviewDecision.REJECT) {
+                    hasReject = true;
+                }
+            }
+
+            // 同时存在 PASS 和 REJECT → CONFLICT
+            if (hasPass && hasReject) {
+                return new ReviewAggregationInfo(ReviewAggregationResult.CONFLICT, null, reviewerCount);
+            }
+
+            // 存在 REJECT → HAS_REJECT
+            if (hasReject) {
+                return new ReviewAggregationInfo(ReviewAggregationResult.HAS_REJECT, null, reviewerCount);
+            }
+
+            // 否则 → ALL_PASS
+            return new ReviewAggregationInfo(ReviewAggregationResult.ALL_PASS, null, reviewerCount);
+        }
+    }
+
+    /**
      * 查询 Application（只读）
      * 说明：
      * - 这是 Application 的唯一取数入口
@@ -168,39 +359,60 @@ public class ApplicationService {
             return;
         }
 
-        // 标记是否所有 Material 都有审核记录
-        boolean allReviewed = true;
+        // 标记是否所有 Material 都为 ALL_PASS
+        boolean allAllPass = true;
 
-        // 遍历每个 Material
+        // 遍历每个 Material，收集 ReviewAggregationInfo
+        List<ReviewAggregationInfo> aggregationInfos = new java.util.ArrayList<>();
+
         for (Material material : materials) {
             // 查询该 Material 的 ReviewRecord 列表
             List<ReviewRecord> reviewRecords = reviewRecordRepository.findByMaterialId(material.getId());
 
-            // 若 ReviewRecord 为空
-            if (reviewRecords.isEmpty()) {
-                allReviewed = false;
-                continue;
+            // 聚合 ReviewRecord 语义
+            ReviewAggregationInfo info = aggregateReviewResults(reviewRecords, material.getVersion());
+            aggregationInfos.add(info);
+
+            // 任意 Material 聚合结果为 HAS_REJECT → Application = REJECTED
+            if (info.getResult() == ReviewAggregationResult.HAS_REJECT) {
+                application.markRejected();
+                applicationRepository.save(application);
+                return;
             }
 
-            // 只要发现任意 decision == REJECT
-            for (ReviewRecord reviewRecord : reviewRecords) {
-                if (reviewRecord.getDecision() == ReviewDecision.REJECT) {
-                    // 标记为 REJECT
-                    application.markRejected();
-                    applicationRepository.save(application);
-                    return;
-                }
+            // 检查是否所有 Material 都为 ALL_PASS
+            if (info.getResult() != ReviewAggregationResult.ALL_PASS) {
+                allAllPass = false;
             }
         }
 
-        // 若存在任意 Material 的 ReviewRecord 为空 → return
-        if (!allReviewed) {
-            return;
+        // 当且仅当所有 Material 聚合结果为 ALL_PASS → Application = APPROVED
+        if (allAllPass) {
+            application.markApproved();
+            applicationRepository.save(application);
+        } else {
+            // 计算内部阻塞原因
+            ApplicationReviewBlockReason blockReason = null;
+
+            // 优先级：冲突优先于人数不足
+            boolean hasConflict = aggregationInfos.stream()
+                    .anyMatch(info -> info.getResult() == ReviewAggregationResult.CONFLICT);
+
+            boolean hasIncomplete = aggregationInfos.stream()
+                    .anyMatch(info -> info.getResult() == ReviewAggregationResult.INCOMPLETE);
+
+            if (hasConflict) {
+                blockReason = ApplicationReviewBlockReason.CONFLICTING_REVIEWS;
+            } else if (hasIncomplete) {
+                blockReason = ApplicationReviewBlockReason.INSUFFICIENT_REVIEWERS;
+            }
+
+            // 记录阻塞原因（用于未来扩展，不落库）
+            // 可以在这里添加日志输出
+            // logger.info("Application {} under review due to: {}", applicationId, blockReason);
         }
 
-        // 满足"全部有审核且全部 PASS"
-        application.markApproved();
-        applicationRepository.save(application);
+        // 其他情况 → Application 保持 UNDER_REVIEW
     }
 }
 

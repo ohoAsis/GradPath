@@ -70,7 +70,7 @@ public class ReviewService {
         }
 
         // 创建并保存 ReviewRecord
-        ReviewRecord reviewRecord = new ReviewRecord(materialId, reviewerId, decision, comment);
+        ReviewRecord reviewRecord = new ReviewRecord(materialId, material.getVersion(), reviewerId, decision, comment);
         return reviewRecordRepository.save(reviewRecord);
     }
 

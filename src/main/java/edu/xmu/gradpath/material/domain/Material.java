@@ -47,6 +47,12 @@ public class Material {
     @Column(name = "updated_at", nullable = false)
     private LocalDateTime updatedAt;
 
+    /**
+     * 版本号
+     */
+    @Column(nullable = false, columnDefinition = "int default 1")
+    private Integer version = 1;
+
     protected Material() {
         // JPA only
     }
@@ -65,6 +71,7 @@ public class Material {
         */
         this.createdAt = LocalDateTime.now();
         this.updatedAt = LocalDateTime.now();
+        this.version = 1;
     }
 
     public Long getId() {
@@ -93,6 +100,10 @@ public class Material {
 
     public LocalDateTime getUpdatedAt() {
         return updatedAt;
+    }
+
+    public Integer getVersion() {
+        return version;
     }
 
     public void setApplicationId(Long applicationId) {
