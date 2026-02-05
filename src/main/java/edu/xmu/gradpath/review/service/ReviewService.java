@@ -1,6 +1,8 @@
 package edu.xmu.gradpath.review.service;
 
 import edu.xmu.gradpath.application.service.ApplicationService;
+import edu.xmu.gradpath.application.domain.Application;
+import edu.xmu.gradpath.application.domain.ApplicationStatus;
 import edu.xmu.gradpath.common.exception.BizException;
 import edu.xmu.gradpath.material.domain.Material;
 import edu.xmu.gradpath.material.repository.MaterialRepository;
@@ -58,7 +60,15 @@ public class ReviewService {
     @Transactional
     public ReviewRecord createReviewRecord(Long applicationId, Long materialId, Long reviewerId, ReviewDecision decision, String comment) {
         // 校验 Application 是否存在
-        applicationService.getById(applicationId);
+        Application application = applicationService.getById(applicationId);
+
+        // 当 Application.status 为 DRAFT、APPROVED 或 REJECTED 时，禁止创建 ReviewRecord
+        ApplicationStatus status = application.getStatus();
+        if (status == ApplicationStatus.DRAFT || 
+            status == ApplicationStatus.APPROVED || 
+            status == ApplicationStatus.REJECTED) {
+            throw new BizException(400, "cannot create review record when application is in " + status.name() + " status");
+        }
 
         // 校验 Material 是否存在
         Material material = materialRepository.findById(materialId)

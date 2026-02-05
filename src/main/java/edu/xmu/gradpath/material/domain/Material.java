@@ -74,6 +74,9 @@ public class Material {
         this.version = 1;
     }
 
+    public void incrementVersion() {
+    this.version++;
+}
     public Long getId() {
         return id;
     }

@@ -9,13 +9,13 @@ import edu.xmu.gradpath.material.repository.MaterialRepository;
 import edu.xmu.gradpath.review.domain.ReviewDecision;
 import edu.xmu.gradpath.review.domain.ReviewRecord;
 import edu.xmu.gradpath.review.repository.ReviewRecordRepository;
+import edu.xmu.gradpath.application.controller.dto.ApplicationReviewSummary;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Objects;
 import java.util.Comparator;
-
 @Service
 public class ApplicationService {
 
@@ -346,8 +346,27 @@ public class ApplicationService {
         // 加载 Application
         Application application = getById(applicationId);
 
-        // status != UNDER_REVIEW → 直接 return
-        if (application.getStatus() != ApplicationStatus.UNDER_REVIEW) {
+        // 如果当前 Application.status == SUBMITTED 且该 Application 已存在至少一条 ReviewRecord，迁移为 UNDER_REVIEW
+        if (application.getStatus() == ApplicationStatus.SUBMITTED) {
+            // 检查该 Application 是否存在至少一条 ReviewRecord
+            List<Material> materials = materialRepository.findByApplicationId(applicationId);
+            boolean hasReviewRecord = false;
+            
+            for (Material material : materials) {
+                List<ReviewRecord> reviewRecords = reviewRecordRepository.findByMaterialId(material.getId());
+                if (!reviewRecords.isEmpty()) {
+                    hasReviewRecord = true;
+                    break;
+                }
+            }
+            
+            if (hasReviewRecord) {
+                application.markUnderReview();
+                applicationRepository.save(application);
+            } else {
+                return;
+            }
+        } else if (application.getStatus() != ApplicationStatus.UNDER_REVIEW) {
             return;
         }
 
@@ -413,6 +432,46 @@ public class ApplicationService {
         }
 
         // 其他情况 → Application 保持 UNDER_REVIEW
+    }
+
+    /**
+     * 获取审核解释结果
+     * @param applicationId 申请 ID
+     * @return 审核解释结果视图对象
+     */
+    public ApplicationReviewSummary getReviewSummary(Long applicationId) {
+        // 加载 Application
+        Application application = getById(applicationId);
+
+        // 查询 Application 下的所有 Material
+        List<Material> materials = materialRepository.findByApplicationId(applicationId);
+
+        // 构建审核解释结果
+        ApplicationReviewSummary summary = new ApplicationReviewSummary();
+        summary.setApplicationId(applicationId);
+        summary.setApplicationStatus(application.getStatus());
+
+        // 构建材料审核解释结果列表
+        List<ApplicationReviewSummary.MaterialReviewSummary> materialSummaries = new java.util.ArrayList<>();
+
+        for (Material material : materials) {
+            // 查询该 Material 的 ReviewRecord 列表
+            List<ReviewRecord> reviewRecords = reviewRecordRepository.findByMaterialId(material.getId());
+
+            // 聚合 ReviewRecord 语义
+            ReviewAggregationInfo info = aggregateReviewResults(reviewRecords, material.getVersion());
+
+            // 构建材料审核解释结果
+            ApplicationReviewSummary.MaterialReviewSummary materialSummary = new ApplicationReviewSummary.MaterialReviewSummary();
+            materialSummary.setMaterialId(material.getId());
+            materialSummary.setCurrentVersion(material.getVersion());
+            materialSummary.setReviewResult(info.getResult().name());
+
+            materialSummaries.add(materialSummary);
+        }
+
+        summary.setMaterials(materialSummaries);
+        return summary;
     }
 }
 

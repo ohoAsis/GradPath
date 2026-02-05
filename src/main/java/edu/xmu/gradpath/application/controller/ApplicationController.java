@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import edu.xmu.gradpath.application.controller.dto.ApplicationReviewSummary;
 @RestController
 @RequestMapping(
         value = "/applications",
@@ -52,5 +53,16 @@ public class ApplicationController {
         Application application = applicationService.getById(applicationId);
         ApplicationQueryResponse resp = ApplicationQueryResponse.from(application);
         return ApiResponse.success(resp);
+    }
+
+    /**
+     * 获取审核解释结果
+     */
+    @GetMapping("/{id}/review-summary")
+    public ApiResponse<ApplicationReviewSummary> getReviewSummary(
+            @PathVariable("id") Long applicationId
+    ) {
+        ApplicationReviewSummary summary = applicationService.getReviewSummary(applicationId);
+        return ApiResponse.success(summary);
     }
 }

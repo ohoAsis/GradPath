@@ -5,8 +5,8 @@ import edu.xmu.gradpath.common.exception.BizException;
 import edu.xmu.gradpath.material.domain.Material;
 import edu.xmu.gradpath.material.repository.MaterialRepository;
 import org.springframework.stereotype.Service;
-
-import java.time.LocalDateTime;
+import edu.xmu.gradpath.application.domain.ApplicationStatus;
+import edu.xmu.gradpath.application.domain.Application;
 import java.util.List;
 
 @Service
@@ -41,7 +41,14 @@ public class MaterialService {
      */
     public Material createMaterial(Long applicationId, String category, String content, String attachmentRef) {
         // 校验 Application 是否存在
-        applicationService.getById(applicationId);
+        Application application = applicationService.getById(applicationId);
+
+        // 当 Application.status 为 SUBMITTED 或 UNDER_REVIEW 时，禁止新增 Material
+        ApplicationStatus status = application.getStatus();
+        if (status == ApplicationStatus.SUBMITTED || 
+            status == ApplicationStatus.UNDER_REVIEW) {
+            throw new BizException(400, "cannot add material when application is submitted or under review");
+        }
 
         // 校验写入规则：content 与 attachmentRef 至少有一个不为空
         if (content == null && attachmentRef == null) {
@@ -62,7 +69,14 @@ public class MaterialService {
      */
     public void deleteMaterial(Long applicationId, Long materialId) {
         // 校验 Application 是否存在
-        applicationService.getById(applicationId);
+        Application application = applicationService.getById(applicationId);
+
+        // 当 Application.status 为 SUBMITTED 或 UNDER_REVIEW 时，禁止删除 Material
+        ApplicationStatus status = application.getStatus();
+        if (status == ApplicationStatus.SUBMITTED || 
+            status == ApplicationStatus.UNDER_REVIEW) {
+            throw new BizException(400, "cannot delete material when application is submitted or under review");
+        }
 
         // 查询 Material
         Material material = materialRepository.findById(materialId)
@@ -75,6 +89,50 @@ public class MaterialService {
 
         // 执行删除
         materialRepository.delete(material);
+    }
+
+    /**
+     * 更新 Material 内容
+     * @param applicationId 申请 ID
+     * @param materialId 材料 ID
+     * @param content 材料内容描述
+     * @param attachmentRef 附件引用
+     * @return 更新后的 Material
+     */
+    public Material updateMaterialContent(Long applicationId, Long materialId, String content, String attachmentRef) {
+        // 校验 Application 是否存在
+        Application application = applicationService.getById(applicationId);
+
+        // 当 Application.status 为 SUBMITTED 或 UNDER_REVIEW 时，禁止修改 Material
+        ApplicationStatus status = application.getStatus();
+        if (status == ApplicationStatus.SUBMITTED || 
+            status == ApplicationStatus.UNDER_REVIEW) {
+            throw new BizException(400, "cannot update material when application is submitted or under review");
+        }
+
+        // 查询 Material
+        Material material = materialRepository.findById(materialId)
+                .orElseThrow(() -> new BizException(404, "material not found"));
+
+        // 校验归属关系
+        if (!material.getApplicationId().equals(applicationId)) {
+            throw new BizException(400, "material does not belong to this application");
+        }
+
+        // 校验写入规则：content 与 attachmentRef 至少有一个不为空
+        if (content == null && attachmentRef == null) {
+            throw new BizException(400, "content and attachmentRef cannot be both null");
+        }
+
+        // 更新 Material 内容
+        material.setContent(content);
+        material.setAttachmentRef(attachmentRef);
+
+        // 每次成功修改，必须触发 material.version++
+        material.incrementVersion();
+
+        // 保存并返回
+        return materialRepository.save(material);
     }
 
 }
