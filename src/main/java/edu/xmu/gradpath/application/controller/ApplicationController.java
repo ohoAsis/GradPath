@@ -10,6 +10,11 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import edu.xmu.gradpath.application.controller.dto.ApplicationReviewSummary;
+import edu.xmu.gradpath.application.controller.dto.ApplicationLifecycleSummary;
+import edu.xmu.gradpath.application.controller.dto.ApplicationOverview;
+import edu.xmu.gradpath.application.controller.dto.ApplicationSubmissionCheckSummary;
+import java.util.List;
+
 @RestController
 @RequestMapping(
         value = "/applications",
@@ -63,6 +68,37 @@ public class ApplicationController {
             @PathVariable("id") Long applicationId
     ) {
         ApplicationReviewSummary summary = applicationService.getReviewSummary(applicationId);
+        return ApiResponse.success(summary);
+    }
+
+    /**
+     * 获取申请生命周期语义解释
+     */
+    @GetMapping("/{id}/lifecycle-summary")
+    public ApiResponse<ApplicationLifecycleSummary> getLifecycleSummary(
+            @PathVariable("id") Long applicationId
+    ) {
+        ApplicationLifecycleSummary summary = applicationService.getLifecycleSummary(applicationId);
+        return ApiResponse.success(summary);
+    }
+
+    /**
+     * 获取 Application 全局视角列表
+     */
+    @GetMapping("/overview")
+    public ApiResponse<List<ApplicationOverview>> getApplicationOverviews() {
+        List<ApplicationOverview> overviews = applicationService.getApplicationOverviews();
+        return ApiResponse.success(overviews);
+    }
+
+    /**
+     * 获取申请提交校验解释
+     */
+    @GetMapping("/{id}/submission-check")
+    public ApiResponse<ApplicationSubmissionCheckSummary> getSubmissionCheckSummary(
+            @PathVariable("id") Long applicationId
+    ) {
+        ApplicationSubmissionCheckSummary summary = applicationService.getSubmissionCheckSummary(applicationId);
         return ApiResponse.success(summary);
     }
 }

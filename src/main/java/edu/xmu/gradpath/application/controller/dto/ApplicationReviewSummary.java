@@ -11,6 +11,7 @@ public class ApplicationReviewSummary {
 
     private Long applicationId;
     private ApplicationStatus applicationStatus;
+    private ApplicationConclusion overallConclusion;
     private List<MaterialReviewSummary> materials;
 
     public Long getApplicationId() {
@@ -29,6 +30,14 @@ public class ApplicationReviewSummary {
         this.applicationStatus = applicationStatus;
     }
 
+    public ApplicationConclusion getOverallConclusion() {
+        return overallConclusion;
+    }
+
+    public void setOverallConclusion(ApplicationConclusion overallConclusion) {
+        this.overallConclusion = overallConclusion;
+    }
+
     public List<MaterialReviewSummary> getMaterials() {
         return materials;
     }
@@ -44,7 +53,9 @@ public class ApplicationReviewSummary {
 
         private Long materialId;
         private Integer currentVersion;
-        private String reviewResult; // ALL_PASS / HAS_REJECT / INCOMPLETE / CONFLICT
+        private AggregationResult aggregationResult;
+        private BlockingReason blockingReason;
+        private Integer effectiveReviewerCount;
 
         public Long getMaterialId() {
             return materialId;
@@ -62,12 +73,56 @@ public class ApplicationReviewSummary {
             this.currentVersion = currentVersion;
         }
 
-        public String getReviewResult() {
-            return reviewResult;
+        public AggregationResult getAggregationResult() {
+            return aggregationResult;
         }
 
-        public void setReviewResult(String reviewResult) {
-            this.reviewResult = reviewResult;
+        public void setAggregationResult(AggregationResult aggregationResult) {
+            this.aggregationResult = aggregationResult;
         }
+
+        public BlockingReason getBlockingReason() {
+            return blockingReason;
+        }
+
+        public void setBlockingReason(BlockingReason blockingReason) {
+            this.blockingReason = blockingReason;
+        }
+
+        public Integer getEffectiveReviewerCount() {
+            return effectiveReviewerCount;
+        }
+
+        public void setEffectiveReviewerCount(Integer effectiveReviewerCount) {
+            this.effectiveReviewerCount = effectiveReviewerCount;
+        }
+    }
+
+    /**
+     * 审核聚合结果枚举
+     */
+    public enum AggregationResult {
+        ALL_PASS,
+        HAS_REJECT,
+        INCOMPLETE,
+        CONFLICT
+    }
+
+    /**
+     * 审核阻塞原因枚举
+     */
+    public enum BlockingReason {
+        NOT_ENOUGH_REVIEWERS,
+        CONFLICT,
+        HAS_REJECT
+    }
+
+    /**
+     * 应用审核结论枚举
+     */
+    public enum ApplicationConclusion {
+        APPROVED,
+        REJECTED,
+        UNDER_REVIEW
     }
 }

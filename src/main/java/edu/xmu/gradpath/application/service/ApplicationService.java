@@ -10,12 +10,14 @@ import edu.xmu.gradpath.review.domain.ReviewDecision;
 import edu.xmu.gradpath.review.domain.ReviewRecord;
 import edu.xmu.gradpath.review.repository.ReviewRecordRepository;
 import edu.xmu.gradpath.application.controller.dto.ApplicationReviewSummary;
+import edu.xmu.gradpath.application.controller.dto.ApplicationLifecycleSummary;
+import edu.xmu.gradpath.application.controller.dto.ApplicationOverview;
+import edu.xmu.gradpath.application.controller.dto.ApplicationSubmissionCheckSummary;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Objects;
-import java.util.Comparator;
 @Service
 public class ApplicationService {
 
@@ -465,12 +467,270 @@ public class ApplicationService {
             ApplicationReviewSummary.MaterialReviewSummary materialSummary = new ApplicationReviewSummary.MaterialReviewSummary();
             materialSummary.setMaterialId(material.getId());
             materialSummary.setCurrentVersion(material.getVersion());
-            materialSummary.setReviewResult(info.getResult().name());
+            
+            // 设置 aggregationResult
+            ApplicationReviewSummary.AggregationResult aggregationResult;
+            switch (info.getResult()) {
+                case ALL_PASS:
+                    aggregationResult = ApplicationReviewSummary.AggregationResult.ALL_PASS;
+                    break;
+                case HAS_REJECT:
+                    aggregationResult = ApplicationReviewSummary.AggregationResult.HAS_REJECT;
+                    break;
+                case INCOMPLETE:
+                    aggregationResult = ApplicationReviewSummary.AggregationResult.INCOMPLETE;
+                    break;
+                case CONFLICT:
+                    aggregationResult = ApplicationReviewSummary.AggregationResult.CONFLICT;
+                    break;
+                default:
+                    aggregationResult = ApplicationReviewSummary.AggregationResult.INCOMPLETE;
+            }
+            materialSummary.setAggregationResult(aggregationResult);
+            
+            // 设置 blockingReason
+            ApplicationReviewSummary.BlockingReason blockingReason = null;
+            if (aggregationResult != ApplicationReviewSummary.AggregationResult.ALL_PASS) {
+                if (info.getResult() == ReviewAggregationResult.INCOMPLETE) {
+                    blockingReason = ApplicationReviewSummary.BlockingReason.NOT_ENOUGH_REVIEWERS;
+                } else if (info.getResult() == ReviewAggregationResult.CONFLICT) {
+                    blockingReason = ApplicationReviewSummary.BlockingReason.CONFLICT;
+                } else if (info.getResult() == ReviewAggregationResult.HAS_REJECT) {
+                    blockingReason = ApplicationReviewSummary.BlockingReason.HAS_REJECT;
+                }
+            }
+            materialSummary.setBlockingReason(blockingReason);
+            
+            // 设置 effectiveReviewerCount
+            materialSummary.setEffectiveReviewerCount(info.getReviewerCount());
 
             materialSummaries.add(materialSummary);
         }
 
         summary.setMaterials(materialSummaries);
+        
+        // 计算 overallConclusion
+        ApplicationReviewSummary.ApplicationConclusion overallConclusion;
+        boolean hasReject = false;
+        boolean allPass = true;
+        
+        for (ApplicationReviewSummary.MaterialReviewSummary materialSummary : materialSummaries) {
+            ApplicationReviewSummary.AggregationResult aggResult = materialSummary.getAggregationResult();
+            if (aggResult == ApplicationReviewSummary.AggregationResult.HAS_REJECT) {
+                hasReject = true;
+                allPass = false;
+            } else if (aggResult != ApplicationReviewSummary.AggregationResult.ALL_PASS) {
+                allPass = false;
+            }
+        }
+        
+        if (hasReject) {
+            overallConclusion = ApplicationReviewSummary.ApplicationConclusion.REJECTED;
+        } else if (allPass) {
+            overallConclusion = ApplicationReviewSummary.ApplicationConclusion.APPROVED;
+        } else {
+            overallConclusion = ApplicationReviewSummary.ApplicationConclusion.UNDER_REVIEW;
+        }
+        
+        summary.setOverallConclusion(overallConclusion);
+        
+        return summary;
+    }
+
+    /**
+     * 推导 ApplicationStage
+     * @param status ApplicationStatus
+     * @return ApplicationStage
+     */
+    private ApplicationLifecycleSummary.ApplicationStage deriveStage(ApplicationStatus status) {
+        switch (status) {
+            case DRAFT:
+                return ApplicationLifecycleSummary.ApplicationStage.DRAFTING;
+            case SUBMITTED:
+                return ApplicationLifecycleSummary.ApplicationStage.SUBMISSION;
+            case UNDER_REVIEW:
+                return ApplicationLifecycleSummary.ApplicationStage.REVIEWING;
+            case APPROVED:
+            case REJECTED:
+                return ApplicationLifecycleSummary.ApplicationStage.FINALIZED;
+            default:
+                return ApplicationLifecycleSummary.ApplicationStage.DRAFTING;
+        }
+    }
+
+    /**
+     * 获取申请生命周期语义解释
+     * @param applicationId 申请 ID
+     * @return 生命周期语义解释视图对象
+     */
+    public ApplicationLifecycleSummary getLifecycleSummary(Long applicationId) {
+        // 加载 Application
+        Application application = getById(applicationId);
+        ApplicationStatus status = application.getStatus();
+        
+        // 获取审核解释结果
+        ApplicationReviewSummary reviewSummary = getReviewSummary(applicationId);
+        
+        // 构建生命周期语义解释
+        ApplicationLifecycleSummary lifecycleSummary = new ApplicationLifecycleSummary();
+        lifecycleSummary.setApplicationId(applicationId);
+        lifecycleSummary.setApplicationStatus(status);
+        lifecycleSummary.setOverallConclusion(reviewSummary.getOverallConclusion());
+        
+        // 推导 stage
+        ApplicationLifecycleSummary.ApplicationStage stage = deriveStage(status);
+        lifecycleSummary.setStage(stage);
+        
+        // 构建 allowedActions 和 blockedActions
+        java.util.List<ApplicationLifecycleSummary.ApplicationAction> allowedActions = new java.util.ArrayList<>();
+        java.util.List<ApplicationLifecycleSummary.BlockedAction> blockedActions = new java.util.ArrayList<>();
+        
+        switch (stage) {
+            case DRAFTING:
+                // 允许的动作
+                allowedActions.add(ApplicationLifecycleSummary.ApplicationAction.ADD_MATERIAL);
+                allowedActions.add(ApplicationLifecycleSummary.ApplicationAction.REMOVE_MATERIAL);
+                allowedActions.add(ApplicationLifecycleSummary.ApplicationAction.SUBMIT_APPLICATION);
+                // 阻止的动作
+                blockedActions.add(new ApplicationLifecycleSummary.BlockedAction(
+                        ApplicationLifecycleSummary.ApplicationAction.CREATE_REVIEW,
+                        "APPLICATION_NOT_SUBMITTED"
+                ));
+                blockedActions.add(new ApplicationLifecycleSummary.BlockedAction(
+                        ApplicationLifecycleSummary.ApplicationAction.VIEW_RESULT,
+                        "NO_REVIEW_YET"
+                ));
+                break;
+            case SUBMISSION:
+            case REVIEWING:
+                // 允许的动作
+                allowedActions.add(ApplicationLifecycleSummary.ApplicationAction.CREATE_REVIEW);
+                allowedActions.add(ApplicationLifecycleSummary.ApplicationAction.VIEW_RESULT);
+                // 阻止的动作
+                blockedActions.add(new ApplicationLifecycleSummary.BlockedAction(
+                        ApplicationLifecycleSummary.ApplicationAction.ADD_MATERIAL,
+                        "MATERIAL_FROZEN_AFTER_SUBMISSION"
+                ));
+                blockedActions.add(new ApplicationLifecycleSummary.BlockedAction(
+                        ApplicationLifecycleSummary.ApplicationAction.REMOVE_MATERIAL,
+                        "MATERIAL_FROZEN_AFTER_SUBMISSION"
+                ));
+                break;
+            case FINALIZED:
+                // 允许的动作
+                allowedActions.add(ApplicationLifecycleSummary.ApplicationAction.VIEW_RESULT);
+                // 阻止的动作
+                blockedActions.add(new ApplicationLifecycleSummary.BlockedAction(
+                        ApplicationLifecycleSummary.ApplicationAction.ADD_MATERIAL,
+                        "APPLICATION_FINALIZED"
+                ));
+                blockedActions.add(new ApplicationLifecycleSummary.BlockedAction(
+                        ApplicationLifecycleSummary.ApplicationAction.REMOVE_MATERIAL,
+                        "APPLICATION_FINALIZED"
+                ));
+                blockedActions.add(new ApplicationLifecycleSummary.BlockedAction(
+                        ApplicationLifecycleSummary.ApplicationAction.CREATE_REVIEW,
+                        "APPLICATION_FINALIZED"
+                ));
+                break;
+        }
+        
+        lifecycleSummary.setAllowedActions(allowedActions);
+        lifecycleSummary.setBlockedActions(blockedActions);
+        
+        return lifecycleSummary;
+    }
+
+    /**
+     * 获取所有 Application 的全局视角读模型
+     * @return ApplicationOverview 列表
+     */
+    public java.util.List<ApplicationOverview> getApplicationOverviews() {
+        // 查询所有 Application
+        List<Application> applications = applicationRepository.findAll();
+        
+        // 为每个 Application 构建 ApplicationOverview
+        return applications.stream().map(application -> {
+            ApplicationOverview overview = new ApplicationOverview();
+            Long applicationId = application.getId();
+            ApplicationStatus status = application.getStatus();
+            
+            // 设置 applicationId 和 applicationStatus
+            overview.setApplicationId(applicationId);
+            overview.setApplicationStatus(status);
+            
+            // 推导 stage（复用已有规则）
+            ApplicationLifecycleSummary.ApplicationStage stage = deriveStage(status);
+            overview.setStage(stage);
+            
+            // 获取 overallConclusion（复用已有规则）
+            ApplicationReviewSummary reviewSummary = getReviewSummary(applicationId);
+            overview.setOverallConclusion(reviewSummary.getOverallConclusion());
+            
+            return overview;
+        }).collect(java.util.stream.Collectors.toList());
+    }
+
+    /**
+     * 获取申请提交校验解释
+     * @param applicationId 申请 ID
+     * @return 提交校验解释视图对象
+     */
+    public ApplicationSubmissionCheckSummary getSubmissionCheckSummary(Long applicationId) {
+        // 加载 Application
+        Application application = getById(applicationId);
+        ApplicationStatus status = application.getStatus();
+        
+        // 查询该 Application 下的 Material
+        List<Material> materials = materialRepository.findByApplicationId(applicationId);
+        
+        // 获取生命周期语义解释
+        ApplicationLifecycleSummary lifecycleSummary = getLifecycleSummary(applicationId);
+        
+        // 构建提交校验项列表
+        java.util.List<ApplicationSubmissionCheckSummary.SubmissionCheckItem> checks = new java.util.ArrayList<>();
+        
+        // STATUS_IS_DRAFT 检查
+        ApplicationSubmissionCheckSummary.SubmissionCheckItem statusCheck = new ApplicationSubmissionCheckSummary.SubmissionCheckItem();
+        statusCheck.setCheckType(ApplicationSubmissionCheckSummary.SubmissionCheckType.STATUS_IS_DRAFT);
+        boolean isDraft = status == ApplicationStatus.DRAFT;
+        statusCheck.setPassed(isDraft);
+        if (!isDraft) {
+            statusCheck.setReason("APPLICATION_NOT_IN_DRAFT");
+        }
+        checks.add(statusCheck);
+        
+        // HAS_AT_LEAST_ONE_MATERIAL 检查
+        ApplicationSubmissionCheckSummary.SubmissionCheckItem materialCheck = new ApplicationSubmissionCheckSummary.SubmissionCheckItem();
+        materialCheck.setCheckType(ApplicationSubmissionCheckSummary.SubmissionCheckType.HAS_AT_LEAST_ONE_MATERIAL);
+        boolean hasMaterial = !materials.isEmpty();
+        materialCheck.setPassed(hasMaterial);
+        if (!hasMaterial) {
+            materialCheck.setReason("NO_MATERIAL_ATTACHED");
+        }
+        checks.add(materialCheck);
+        
+        // ACTION_ALLOWED 检查
+        ApplicationSubmissionCheckSummary.SubmissionCheckItem actionCheck = new ApplicationSubmissionCheckSummary.SubmissionCheckItem();
+        actionCheck.setCheckType(ApplicationSubmissionCheckSummary.SubmissionCheckType.ACTION_ALLOWED);
+        boolean actionAllowed = lifecycleSummary.getAllowedActions().contains(
+                ApplicationLifecycleSummary.ApplicationAction.SUBMIT_APPLICATION
+        );
+        actionCheck.setPassed(actionAllowed);
+        if (!actionAllowed) {
+            actionCheck.setReason("SUBMISSION_NOT_ALLOWED_IN_CURRENT_STAGE");
+        }
+        checks.add(actionCheck);
+        
+        // 计算 canSubmit
+        boolean canSubmit = checks.stream().allMatch(ApplicationSubmissionCheckSummary.SubmissionCheckItem::getPassed);
+        
+        // 构建并返回提交校验解释
+        ApplicationSubmissionCheckSummary summary = new ApplicationSubmissionCheckSummary();
+        summary.setApplicationId(applicationId);
+        summary.setCanSubmit(canSubmit);
+        summary.setChecks(checks);
+        
         return summary;
     }
 }
