@@ -1,7 +1,9 @@
 package edu.xmu.gradpath.material.controller.dto;
 
 import edu.xmu.gradpath.material.domain.Material;
+import edu.xmu.gradpath.material.domain.ScoreMode;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 /**
@@ -15,6 +17,8 @@ public class MaterialQueryResponse {
     private String content;
     private String attachmentRef;
     private LocalDateTime createdAt;
+    private BigDecimal declaredScore;
+    private ScoreMode scoreMode;
 
     private MaterialQueryResponse() {
     }
@@ -26,6 +30,8 @@ public class MaterialQueryResponse {
         resp.content = material.getContent();
         resp.attachmentRef = material.getAttachmentRef();
         resp.createdAt = material.getCreatedAt();
+        resp.declaredScore = material.getDeclaredScore();
+        resp.scoreMode = material.getScoreMode();
         return resp;
     }
 
@@ -47,5 +53,13 @@ public class MaterialQueryResponse {
 
     public LocalDateTime getCreatedAt() {
         return createdAt;
+    }
+
+    public BigDecimal getDeclaredScore() {
+        return declaredScore;
+    }
+
+    public ScoreMode getScoreMode() {
+        return scoreMode;
     }
 }

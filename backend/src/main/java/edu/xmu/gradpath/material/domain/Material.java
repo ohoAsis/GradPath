@@ -1,6 +1,7 @@
 package edu.xmu.gradpath.material.domain;
 
 import jakarta.persistence.*;
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 @Entity
@@ -53,6 +54,19 @@ public class Material {
     @Column(nullable = false, columnDefinition = "int default 1")
     private Integer version = 1;
 
+    /**
+     * 学生申报分值
+     */
+    @Column(name = "declared_score", nullable = false)
+    private BigDecimal declaredScore;
+
+    /**
+     * 计分模式
+     */
+    @Enumerated(EnumType.STRING)
+    @Column(name = "score_mode", nullable = false, columnDefinition = "varchar(20) default 'DECLARED'")
+    private ScoreMode scoreMode = ScoreMode.DECLARED;
+
     protected Material() {
         // JPA only
     }
@@ -60,11 +74,13 @@ public class Material {
     /**
      * 构造器：创建 Material
      */
-    public Material(Long applicationId, String category, String content, String attachmentRef) {
+    public Material(Long applicationId, String category, String content, String attachmentRef, BigDecimal declaredScore, ScoreMode scoreMode) {
         this.applicationId = applicationId;
         this.category = category;
         this.content = content;
         this.attachmentRef = attachmentRef;
+        this.declaredScore = declaredScore;
+        this.scoreMode = scoreMode != null ? scoreMode : ScoreMode.DECLARED;
         /**
         * Material 的时间字段现在由构造器负责，
         * 未来如果引入 JPA Auditing，需要把这一段迁走。
@@ -109,6 +125,14 @@ public class Material {
         return version;
     }
 
+    public BigDecimal getDeclaredScore() {
+        return declaredScore;
+    }
+
+    public ScoreMode getScoreMode() {
+        return scoreMode;
+    }
+
     public void setApplicationId(Long applicationId) {
         this.applicationId = applicationId;
     }
@@ -131,5 +155,13 @@ public class Material {
 
     public void setUpdatedAt(LocalDateTime updatedAt) {
         this.updatedAt = updatedAt;
+    }
+
+    public void setDeclaredScore(BigDecimal declaredScore) {
+        this.declaredScore = declaredScore;
+    }
+
+    public void setScoreMode(ScoreMode scoreMode) {
+        this.scoreMode = scoreMode;
     }
 }

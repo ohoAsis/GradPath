@@ -1,5 +1,6 @@
 package edu.xmu.gradpath.application.controller.dto;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 /**
@@ -10,6 +11,7 @@ public class ApplicationSubmissionCheckSummary {
     private Long applicationId;
     private Boolean canSubmit;
     private List<SubmissionCheckItem> checks;
+    private LocalDateTime checkedAt;
 
     public Long getApplicationId() {
         return applicationId;
@@ -33,6 +35,14 @@ public class ApplicationSubmissionCheckSummary {
 
     public void setChecks(List<SubmissionCheckItem> checks) {
         this.checks = checks;
+    }
+
+    public LocalDateTime getCheckedAt() {
+        return checkedAt;
+    }
+
+    public void setCheckedAt(LocalDateTime checkedAt) {
+        this.checkedAt = checkedAt;
     }
 
     /**
@@ -74,6 +84,8 @@ public class ApplicationSubmissionCheckSummary {
     public enum SubmissionCheckType {
         STATUS_IS_DRAFT,       // 状态是否为草稿
         HAS_AT_LEAST_ONE_MATERIAL, // 是否至少有一个材料
-        ACTION_ALLOWED         // 动作是否被允许
+        ACTION_ALLOWED,        // 动作是否被允许
+        MATERIAL_REQUIRED_FIELDS, // 材料必填字段检查
+        SCORE_SEMANTICS_CONSISTENCY // 计分语义一致性检查
     }
 }

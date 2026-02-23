@@ -1,0 +1,140 @@
+### 1. 创建申请（DRAFT）
+POST {{baseUrl}}/applications/draft
+Content-Type: {{json}}
+
+# 响应示例: {"code":200,"data":1,"message":"success"}
+# 用户需要手动把返回的 id 填进http-client.env.json中
+
+### 2. 添加材料 A（DECLARED，15.50）
+POST {{baseUrl}}/applications/{{appId}}/materials
+Content-Type: {{json}}
+
+{
+  "category": "竞赛",
+  "content": "全国大学生数学建模竞赛一等奖",
+  "attachmentRef": "path/to/file1.pdf",
+  "declaredScore": 15.50,
+  "scoreMode": "DECLARED"
+}
+
+# 响应示例: {"code":200,"data":{"id":1,"category":"竞赛","content":"全国大学生数学建模竞赛一等奖","attachmentRef":"path/to/file1.pdf","createdAt":"2026-02-23T12:00:00","declaredScore":15.50,"scoreMode":"DECLARED"},"message":"success"}
+# 用户需要手动将返回的 id 填到json
+
+### 3. 添加材料 B（NONE，0.00）
+POST {{baseUrl}}/applications/{{appId}}/materials
+Content-Type: {{json}}
+
+{
+  "category": "资格",
+  "content": "英语六级证书",
+  "attachmentRef": "path/to/file2.pdf",
+  "declaredScore": 0.00,
+  "scoreMode": "NONE"
+}
+
+# 响应示例: {"code":200,"data":{"id":2,"category":"资格","content":"英语六级证书","attachmentRef":"path/to/file2.pdf","createdAt":"2026-02-23T12:00:00","declaredScore":0.00,"scoreMode":"NONE"},"message":"success"}
+# 用户需要手动将返回的 id 填到json
+
+### 4. 添加材料 C（DECLARED，10.00）
+POST {{baseUrl}}/applications/{{appId}}/materials
+Content-Type: {{json}}
+
+{
+  "category": "论文",
+  "content": "发表在核心期刊的论文",
+  "attachmentRef": "path/to/file3.pdf",
+  "declaredScore": 10.00,
+  "scoreMode": "DECLARED"
+}
+
+# 响应示例: {"code":200,"data":{"id":3,"category":"论文","content":"发表在核心期刊的论文","attachmentRef":"path/to/file3.pdf","createdAt":"2026-02-23T12:00:00","declaredScore":10.00,"scoreMode":"DECLARED"},"message":"success"}
+# 用户需要手动将返回的 id 填到json
+
+### 5. submission-check（提交前检查）
+GET {{baseUrl}}/applications/{{appId}}/submission-check
+
+### 6. submit（提交申请）
+POST {{baseUrl}}/applications/{{appId}}/submit
+Content-Type: {{json}}
+
+### 7. start-review（进入审核中状态）
+# 如果 submit 已自动进入 UNDER_REVIEW 可跳过；否则必须执行，否则后续创建审核会因状态守卫失败
+#POST {{baseUrl}}/applications/{{appId}}/start-review
+#Content-Type: {{json}}
+
+### 8. 创建审核事实 ReviewRecord - A PASS
+POST {{baseUrl}}/materials/{{mA}}/reviews
+Content-Type: {{json}}
+
+{
+  "reviewerId": 1,
+  "decision": "PASS",
+  "comment": "审核通过"
+}
+
+### 9. 创建审核事实 ReviewRecord - B PASS
+POST {{baseUrl}}/materials/{{mB}}/reviews
+Content-Type: {{json}}
+
+{
+  "reviewerId": 1,
+  "decision": "PASS",
+  "comment": "审核通过"
+}
+
+### 10. 创建审核事实 ReviewRecord - C REJECT
+POST {{baseUrl}}/materials/{{mC}}/reviews
+Content-Type: {{json}}
+
+{
+  "reviewerId": 1,
+  "decision": "REJECT",
+  "comment": "需要提供更多证明材料"
+}
+
+### 11. 查询审核详情（ApplicationReviewSummary）
+GET {{baseUrl}}/applications/{{appId}}/review-summary
+
+### 12. reviseMaterial（修订材料 C，version++，12.25）
+POST {{baseUrl}}/applications/{{appId}}/materials/{{mC}}/revise
+Content-Type: {{json}}
+
+{
+  "declaredScore": 12.25,
+  "description": "发表在核心期刊的论文，补充了录用通知",
+  "filePath": "path/to/file3-updated.pdf"
+}
+
+### 13. 对 C 新版本再审核 PASS（必须确保打在最新版本）
+# 如果 reviews 接口支持 materialVersion 字段：在 body 中显式传入（例如 2）
+# 如果不支持：该接口会自动取 material 当前 version
+POST {{baseUrl}}/materials/{{mC}}/reviews
+Content-Type: {{json}}
+
+{
+  "reviewerId": 1,
+  "decision": "PASS",
+  "comment": "审核通过"
+}
+
+### 14. 确认 canCreateScore/hasScore 变化
+GET {{baseUrl}}/applications/{{appId}}/review-summary
+
+### 15. 创建 MaterialScore - C 成功
+POST {{baseUrl}}/materials/{{mC}}/score
+Content-Type: {{json}}
+
+### 16. 创建 MaterialScore - A 成功
+POST {{baseUrl}}/materials/{{mA}}/score
+Content-Type: {{json}}
+
+### 17. 创建 MaterialScore - B/NONE 失败（预期失败，用于验证守卫）
+# 期望 400，message 类似 "material is non-scoring"
+POST {{baseUrl}}/materials/{{mB}}/score
+Content-Type: {{json}}
+
+### 18. 查询分值汇总（ApplicationScoreSummary）
+GET {{baseUrl}}/applications/{{appId}}/scores
+
+### 19. 查询统一进度（ApplicationDashboard）
+GET {{baseUrl}}/applications/{{appId}}/dashboard

@@ -13,6 +13,8 @@ import edu.xmu.gradpath.application.controller.dto.ApplicationReviewSummary;
 import edu.xmu.gradpath.application.controller.dto.ApplicationLifecycleSummary;
 import edu.xmu.gradpath.application.controller.dto.ApplicationOverview;
 import edu.xmu.gradpath.application.controller.dto.ApplicationSubmissionCheckSummary;
+import edu.xmu.gradpath.application.controller.dto.ApplicationScoreSummary;
+import edu.xmu.gradpath.application.controller.dto.ApplicationDashboard;
 import java.util.List;
 
 @RestController
@@ -100,5 +102,27 @@ public class ApplicationController {
     ) {
         ApplicationSubmissionCheckSummary summary = applicationService.getSubmissionCheckSummary(applicationId);
         return ApiResponse.success(summary);
+    }
+
+    /**
+     * 获取申请分值汇总解释
+     */
+    @GetMapping("/{id}/scores")
+    public ApiResponse<ApplicationScoreSummary> getScoreSummary(
+            @PathVariable("id") Long applicationId
+    ) {
+        ApplicationScoreSummary summary = applicationService.getScoreSummary(applicationId);
+        return ApiResponse.success(summary);
+    }
+
+    /**
+     * 获取申请统一进度解释
+     */
+    @GetMapping("/{id}/dashboard")
+    public ApiResponse<ApplicationDashboard> getDashboard(
+            @PathVariable("id") Long applicationId
+    ) {
+        ApplicationDashboard dashboard = applicationService.getDashboard(applicationId);
+        return ApiResponse.success(dashboard);
     }
 }

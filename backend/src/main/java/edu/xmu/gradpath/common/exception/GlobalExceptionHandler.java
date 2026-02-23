@@ -21,6 +21,8 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<ApiResponse<Void>> handleOther(Exception ex) {
+        // 打印异常栈以提高调试效率
+        ex.printStackTrace();
         // MVP：避免把内部异常细节暴露给客户端
         return ResponseEntity
                 .status(HttpStatus.INTERNAL_SERVER_ERROR)

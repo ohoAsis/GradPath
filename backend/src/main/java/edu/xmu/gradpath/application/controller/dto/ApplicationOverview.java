@@ -2,6 +2,8 @@ package edu.xmu.gradpath.application.controller.dto;
 
 import edu.xmu.gradpath.application.domain.ApplicationStatus;
 
+import java.math.BigDecimal;
+
 /**
  * Application 全局视角读模型
  */
@@ -11,6 +13,8 @@ public class ApplicationOverview {
     private ApplicationStatus applicationStatus;
     private ApplicationLifecycleSummary.ApplicationStage stage;
     private ApplicationReviewSummary.ApplicationConclusion overallConclusion;
+    private BigDecimal totalApprovedScore;
+    private int missingScoringMaterialsCount;
 
     public Long getApplicationId() {
         return applicationId;
@@ -42,5 +46,21 @@ public class ApplicationOverview {
 
     public void setOverallConclusion(ApplicationReviewSummary.ApplicationConclusion overallConclusion) {
         this.overallConclusion = overallConclusion;
+    }
+
+    public BigDecimal getTotalApprovedScore() {
+        return totalApprovedScore;
+    }
+
+    public void setTotalApprovedScore(BigDecimal totalApprovedScore) {
+        this.totalApprovedScore = totalApprovedScore;
+    }
+
+    public int getMissingScoringMaterialsCount() {
+        return missingScoringMaterialsCount;
+    }
+
+    public void setMissingScoringMaterialsCount(int missingScoringMaterialsCount) {
+        this.missingScoringMaterialsCount = missingScoringMaterialsCount;
     }
 }

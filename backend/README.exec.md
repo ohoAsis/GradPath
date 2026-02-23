@@ -1,274 +1,370 @@
 GradPath – Execution README（for IDE AI）
-
 用途说明（非常重要）
 
 本文档用于指导「编码执行型 AI（如 Cursor / Trae / Qoder）」参与 GradPath 项目开发。
 
 目标只有一个：
-**在不破坏既有工程事实与设计共识的前提下，高效产出可演进的真实业务代码。**
 
-本 README 是当前阶段的 **执行级事实源（Source of Truth）**。
-所有代码生成与修改，必须以本文档为准。
+在不破坏既有工程事实与设计共识的前提下，高效产出可演进的真实业务代码。
 
-> 若与 README.human.md 冲突，**以 README.human.md 的设计共识为上位约束**。
+本 README 是当前阶段的 执行级事实源（Source of Truth）。
 
----
+若与 README.human.md 冲突：
 
-## 1. 项目概述（What）
+以 README.human.md 为上位约束。
 
-GradPath 是一个面向高校推免（保研）场景的 **材料提交、审核与加分裁决管理系统（后端）**。
+1. 项目概述（What）
 
-业务背景来自真实院系流程：
+GradPath 是一个面向高校推免场景的：
 
-学生提交多类加分材料
-→ 多名审核员对材料进行审核
-→ 审核事实累积
-→ 系统基于解释规则评估结论
-→ 在此基础上进行分值裁决与后续排名
+材料提交 → 审核事实累积 → 规则解释 → 分值裁决 → 统一进度解释
 
----
+的后端系统。
 
-## 2. 核心对象（Design Logic · 当前已冻结）
+当前版本已经：
 
-以下对象 **已被代码与设计验证**，禁止随意修改语义或职责。
+跑通完整审核闭环
 
-### 2.1 Application
+实现材料版本隔离
 
-* 表示“一次学生的推免申请”
-* 当前系统中的 **核心业务聚合**
-* **唯一状态机承载者**
-* 审核与加分的最终结果只作用于 Application
+实现自动审核启动
 
-### 2.2 Material
+实现分值裁决模型
 
-* 从属于 Application
-* 表示“可被审核的材料证据”
-* 是审核与加分的直接对象
-* **不参与 Application 状态机**
-* 当前已引入 `version`，作为审核与加分的隔离边界
+实现统一解释模型体系
 
-### 2.3 ReviewRecord（已实现，append-only）
+2. 核心对象（已冻结语义）
 
-* 独立的审核事实实体
-* 表示“一次已经发生的审核行为”
-* append-only（只新增，不修改、不删除）
-* 针对 **Material + Material.version**
-* 不直接驱动ffected Application 状态
+以下语义禁止随意修改。
 
-ReviewRecord 只表达一句话：
+2.1 Application（核心聚合）
 
-> “某个审核员，在某个时间，对某个材料的某个版本，做了一次判断。”
+表示“一次推免申请”
 
-### 2.4 MaterialScore（重要新增 · 已实现）
+唯一状态机承载者
 
-* 表示“**针对某一材料版本的一次分值裁决结果**”
-* 承载：
+审核与加分最终作用对象
 
-  * 学生申报分值（declaredScore）
-  * 审核确认 / 修正分值（approvedScore）
-* 显式绑定：
+只有 ApplicationService 可以修改其状态
 
-  * materialId
-  * materialVersion
-* 结果型实体：
+2.2 Material
 
-  * 不引入流程状态
-  * 不驱动 Application 状态迁移
+从属于 Application
 
-该模型是后续 **总分计算 / 排名 / 公示** 的唯一合法数据来源。
+审核直接对象
 
----
+不参与状态机
 
-## 3. Application 状态机（当前版本）
+引入 version 作为审核隔离边界
 
-```
+当前字段（语义级）：
+
+id
+
+applicationId
+
+category
+
+content
+
+attachmentRef
+
+declaredScore（BigDecimal）
+
+scoreMode（NONE / DECLARED）
+
+version
+
+2.3 ReviewRecord（事实实体 · append-only）
+
+表示一次审核行为
+
+绑定 materialId + materialVersion
+
+不包含 applicationId
+
+不包含状态
+
+不表达有效性
+
+永不修改、不删除
+
+创建规则：
+
+DRAFT 禁止
+
+SUBMITTED 允许（并自动启动审核）
+
+UNDER_REVIEW 允许
+
+APPROVED / REJECTED 禁止
+
+2.4 MaterialScore（结果实体）
+
+表示：
+
+某材料某版本的最终计分裁决结果
+
+字段语义：
+
+materialId
+
+materialVersion
+
+approvedScore（BigDecimal）
+
+decidedAt
+
+约束：
+
+unique(material_id, material_version)
+
+仅当：
+
+scoreMode == DECLARED
+
+聚合结果 == ALL_PASS
+
+尚未存在 score
+
+才允许创建
+
+MaterialScore：
+
+不驱动流程
+
+不修改 Application 状态
+
+不影响审核规则
+
+3. 状态机（当前版本）
 DRAFT
 → SUBMITTED
 → UNDER_REVIEW
 → APPROVED / REJECTED
-```
+执行约束
 
-### 执行约束（必须遵守）
+状态单向流转
 
-* 状态单向流转
-* **禁止在 ReviewService 中修改 Application 状态**
-* 状态迁移仅允许发生在 ApplicationService
-* 状态评估通过 `evaluateAfterReview(applicationId)` 显式触发
+只有 ApplicationService 可修改状态
 
----
+ReviewService 禁止直接 setStatus
 
-## 4. 当前项目进展（Where we are）
+自动审核启动发生在：
 
-### 已完成（事实）
+SUBMITTED 状态下创建首条 ReviewRecord 时
 
-#### Application
+调用 ApplicationService.startReview()
 
-* 创建（DRAFT）
-* 提交（SUBMITTED）
-* 审核中（UNDER_REVIEW）
-* 基于审核事实的最终通过 / 驳回（APPROVED / REJECTED）
+4. 审核内核（不可破坏）
+4.1 审核模型三层结构
+事实层         ReviewRecord
+解释层         ApplicationService 聚合规则
+状态投影层     Application.status
 
-#### Material 子域
+禁止：
 
-* Material Entity + DDL
-* 按 Application 查询材料（GET）
-* 新增材料（POST）
-* 删除材料（DELETE）
-* 引入 version，用于审核与加分隔离
+在 Controller 写状态判断
 
-Material 当前仅作为 **数据型领域对象**，不参与状态机。
+在 ReviewService 修改状态
 
-#### Review 域（稳定）
+在 Entity 写规则逻辑
 
-* ReviewRecord Entity + DDL（append-only）
-* ReviewRecordRepository
-* 创建审核事实：ReviewService.createReviewRecord
-* 查询审核记录（只读）：
+4.2 材料版本隔离
 
-  * GET /materials/{materialId}/reviews
+规则：
 
-#### 解释模型（Read / Explain Models，已完成）
+ReviewRecord 创建时复制 material.version
 
-以下模型 **只读、只解释、不写库、不改状态**：
+聚合时只评估当前版本
 
-* ApplicationReviewSummary
-* ApplicationLifecycleSummary
-* SubmissionCheckSummary
-* ApplicationOverview
+修订材料时 version++
 
-这些模型是前端展示、用户理解与权限判断的 **唯一数据来源**。
+旧事实自动失效（解释层忽略）
 
----
+4.3 材料修订规则
 
-## 5. 审核与解释的执行级约定（非常重要）
+允许修订条件：
 
-### 5.1 审核的当前语义
+Application.status == UNDER_REVIEW
 
-审核 ≠ 状态迁移。
+当前材料聚合结果 == HAS_REJECT
 
-当前系统采用以下拆分：
+修订行为：
 
-**审核事实（Fact）**
+version++
 
-* ReviewRecord
-* 由 ReviewService 创建
-* append-only，永不修改、不作废
+更新 declaredScore / 内容 / 附件
 
-**审核解释（Interpretation）**
+不删除旧 ReviewRecord
 
-* 由 ApplicationService 统一解释
-* 基于 ReviewRecord 集合
-* 可重复计算
+不修改 Application 状态
 
-ReviewService **禁止** 修改 Application 状态。
+4.4 审核聚合规则
 
----
+材料级：
 
-### 5.2 审核解释规则（当前可执行版本）
+reviewer 数 < 2 → INCOMPLETE
 
-**材料级规则**
+PASS / REJECT 并存 → CONFLICT
 
-* 只评估当前 material.version
-* 同一 reviewer：last-write-wins
-* 不同 reviewer：
+否则 → ALL_PASS / HAS_REJECT
 
-  * reviewer 数 < 2 → INCOMPLETE
-  * PASS / REJECT 并存 → CONFLICT
-  * 否则 → ALL_PASS / HAS_REJECT
+同一 reviewer：
 
-**仲裁规则（Role v0）**
+last-write-wins
 
-* ReviewerRole（NORMAL / ARBITER）
-* 不落库、不进 domain
-* 若存在 ARBITER 审核记录：
+仲裁规则：
 
-  * 直接裁决
-  * 绕过 MIN_REVIEWERS 与普通冲突规则
+ARBITER 直接裁决
 
----
+不落库
 
-### 5.3 Application 状态评估规则（保持不变）
+4.5 Application 级评估规则
 
-* 任意 Material → HAS_REJECT → Application = REJECTED
-* 所有 Material → ALL_PASS → Application = APPROVED
-* 其他情况 → Application = UNDER_REVIEW
+任一材料 HAS_REJECT → REJECTED
 
----
+全部材料 ALL_PASS → APPROVED
 
-### 5.4 审核阶段合法性与终态冻结
+其他 → UNDER_REVIEW
 
-允许创建 ReviewRecord 的状态：
+5. 计分语义规则（重要）
+5.1 scoreMode 语义
+NONE
 
-* SUBMITTED
-* UNDER_REVIEW
+不计分材料
 
-明确禁止创建 ReviewRecord 的状态：
+declaredScore 必须为 0
 
-* DRAFT
-* APPROVED
-* REJECTED
+禁止创建 MaterialScore
 
-该规则在 ReviewService.createReviewRecord 中以 **单点防御** 实现。
+不计入 total
 
----
+不计入 missingScore
 
-## 6. 明确禁止在当前阶段实现的内容
+DECLARED
 
-以下内容 **禁止实现**：
+declaredScore >= 0
 
-* NEED_SUPPLEMENT 状态
-* 多轮审核 / Batch
-* 审核记录失效 / 复议
-* 权限 / 登录 / 用户体系
-* ReviewRecord 落角色 / 落状态
-* 自动算分规则引擎
+ALL_PASS 后可创建 MaterialScore
 
-若需求涉及：
+可进入 total 汇总
 
-* 在终态继续写入审核事实
-* 回滚 / 覆盖 ReviewRecord
-* 在原流程中引入复议语义
+5.2 分值汇总规则
 
-→ 视为 **新时间线需求**，必须通过新模型演进，不得在现有模块内硬塞。
+ApplicationScoreSummary：
 
----
+totalApprovedScore
 
-## 7. 已踩过的坑（必须避免）
+missingScoreMaterialIds
 
-以下问题真实发生过，禁止重复：
+仅统计：
 
-* 假设不存在的类 / 方法
-* 未建模就实现
-* 让 ReviewService / Controller 修改 Application 状态
-* 把规则语义放进 domain
-* 引入 Service 间循环依赖
-* DDL 与 Entity 不一致
+scoreMode == DECLARED
+5.3 canCreateScore 规则
 
----
+MaterialReviewSummary 中：
 
-## 8. 对编码 AI 的协作期望（必须遵守）
+canCreateScore =
+    scoreMode == DECLARED
+    && aggregationResult == ALL_PASS
+    && hasScore == false
+6. 只读解释模型体系（禁止写操作）
 
-当你（IDE AI）执行任务时，请遵循：
+以下模型只允许组装，不允许：
 
-* 当前设计是 **可演进的中间态**，不是最终答案
-* 不得引入：
+写库
 
-  * 新状态
-  * 新权限体系
-  * 跨 Service 依赖
+改状态
 
-若发现现有结构不足以承载新需求：
+调用 evaluateAfterReview
 
-* 停止实现
-* 提出结构性调整建议
-* 不得强行堆功能
+已存在模型：
 
----
+ApplicationReviewSummary
 
-## 9. 一句话总结（更新）
+ApplicationScoreSummary
 
-GradPath 当前已稳定形成以下工程内核：
+ApplicationSubmissionCheckSummary
 
-> **审核被建模为事实（ReviewRecord） + 解释模型（ApplicationService / Read Models） + 状态投影（Application），**
-> **并在此基础上引入独立的分值裁决模型（MaterialScore），**
-> **为后续加分汇总、排名与公示提供清晰、可演进的数据基础。**
+ApplicationOverview
+
+ApplicationDashboard
+
+7. 明确禁止实现的内容（当前阶段）
+
+禁止引入：
+
+NEED_SUPPLEMENT
+
+多轮审核 / Batch
+
+复议 / 回滚
+
+审核记录失效
+
+权限体系
+
+自动算分规则引擎
+
+若新需求需要以上能力：
+
+必须新建模型
+
+禁止在现有模块强行扩展
+
+8. 已踩过的坑（禁止重复）
+
+假设不存在的接口
+
+DDL 与 Entity 不一致
+
+Controller 写业务规则
+
+ReviewService 修改 Application 状态
+
+跨 Service 循环依赖
+
+未验证 version 逻辑就写功能
+
+9. 协作原则（对 IDE AI）
+
+当执行任务时：
+
+优先守住职责边界
+
+不引入跨层耦合
+
+不新增状态
+
+不新增权限系统
+
+若现有结构无法承载需求：
+
+停止实现
+
+提出结构性建议
+
+不得强行堆代码
+
+10. 当前系统定位（Day9）
+
+GradPath 当前已不再是 CRUD 项目。
+
+它已形成：
+
+审核事实引擎
+
+材料版本隔离
+
+自动审核启动
+
+计分语义分层
+
+独立分值裁决模型
+
+统一进度解释接口
+
+这是一个：
+
+可扩展的审核决策内核。

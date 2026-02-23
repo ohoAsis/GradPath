@@ -5,7 +5,10 @@ import edu.xmu.gradpath.application.repository.ApplicationRepository;
 import edu.xmu.gradpath.common.exception.BizException;
 import edu.xmu.gradpath.application.domain.ApplicationStatus;
 import edu.xmu.gradpath.material.domain.Material;
+import edu.xmu.gradpath.material.domain.MaterialScore;
+import edu.xmu.gradpath.material.domain.ScoreMode;
 import edu.xmu.gradpath.material.repository.MaterialRepository;
+import edu.xmu.gradpath.material.repository.MaterialScoreRepository;
 import edu.xmu.gradpath.review.domain.ReviewDecision;
 import edu.xmu.gradpath.review.domain.ReviewRecord;
 import edu.xmu.gradpath.review.repository.ReviewRecordRepository;
@@ -13,9 +16,14 @@ import edu.xmu.gradpath.application.controller.dto.ApplicationReviewSummary;
 import edu.xmu.gradpath.application.controller.dto.ApplicationLifecycleSummary;
 import edu.xmu.gradpath.application.controller.dto.ApplicationOverview;
 import edu.xmu.gradpath.application.controller.dto.ApplicationSubmissionCheckSummary;
+import edu.xmu.gradpath.application.controller.dto.ApplicationScoreSummary;
+import edu.xmu.gradpath.application.controller.dto.ApplicationDashboard;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 @Service
@@ -51,6 +59,7 @@ public class ApplicationService {
     private final ApplicationRepository applicationRepository;
     private final MaterialRepository materialRepository;
     private final ReviewRecordRepository reviewRecordRepository;
+    private final MaterialScoreRepository materialScoreRepository;
 
     /**
      * 最小审核员数量
@@ -124,10 +133,11 @@ public class ApplicationService {
         return ReviewerRole.NORMAL;
     }
 
-    public ApplicationService(ApplicationRepository applicationRepository, MaterialRepository materialRepository, ReviewRecordRepository reviewRecordRepository) {
+    public ApplicationService(ApplicationRepository applicationRepository, MaterialRepository materialRepository, ReviewRecordRepository reviewRecordRepository, MaterialScoreRepository materialScoreRepository) {
         this.applicationRepository = applicationRepository;
         this.materialRepository = materialRepository;
         this.reviewRecordRepository = reviewRecordRepository;
+        this.materialScoreRepository = materialScoreRepository;
     }
 
     /**
@@ -170,6 +180,28 @@ public class ApplicationService {
                     400,
                     "only draft application can be submitted"
             );
+        }
+
+        // 提交前进行校验
+        ApplicationSubmissionCheckSummary check = getSubmissionCheckSummary(applicationId);
+        if (!check.getCanSubmit()) {
+            // 构建错误信息
+            StringBuilder errorMessage = new StringBuilder("cannot submit");
+            if (check.getChecks() != null && !check.getChecks().isEmpty()) {
+                StringBuilder reasons = new StringBuilder();
+                for (ApplicationSubmissionCheckSummary.SubmissionCheckItem item : check.getChecks()) {
+                    if (!item.getPassed() && item.getReason() != null) {
+                        if (reasons.length() > 0) {
+                            reasons.append(", ");
+                        }
+                        reasons.append(item.getReason());
+                    }
+                }
+                if (reasons.length() > 0) {
+                    errorMessage.append(": ").append(reasons);
+                }
+            }
+            throw new BizException(400, errorMessage.toString());
         }
 
         application.markSubmitted();
@@ -457,16 +489,20 @@ public class ApplicationService {
         List<ApplicationReviewSummary.MaterialReviewSummary> materialSummaries = new java.util.ArrayList<>();
 
         for (Material material : materials) {
+            Long materialId = material.getId();
+            Integer materialVersion = material.getVersion();
+            ScoreMode scoreMode = material.getScoreMode();
+
             // 查询该 Material 的 ReviewRecord 列表
-            List<ReviewRecord> reviewRecords = reviewRecordRepository.findByMaterialId(material.getId());
+            List<ReviewRecord> reviewRecords = reviewRecordRepository.findByMaterialId(materialId);
 
             // 聚合 ReviewRecord 语义
-            ReviewAggregationInfo info = aggregateReviewResults(reviewRecords, material.getVersion());
+            ReviewAggregationInfo info = aggregateReviewResults(reviewRecords, materialVersion);
 
             // 构建材料审核解释结果
             ApplicationReviewSummary.MaterialReviewSummary materialSummary = new ApplicationReviewSummary.MaterialReviewSummary();
-            materialSummary.setMaterialId(material.getId());
-            materialSummary.setCurrentVersion(material.getVersion());
+            materialSummary.setMaterialId(materialId);
+            materialSummary.setCurrentVersion(materialVersion);
             
             // 设置 aggregationResult
             ApplicationReviewSummary.AggregationResult aggregationResult;
@@ -503,6 +539,36 @@ public class ApplicationService {
             
             // 设置 effectiveReviewerCount
             materialSummary.setEffectiveReviewerCount(info.getReviewerCount());
+
+            // 设置 scoreMode、hasScore 和 approvedScore
+            materialSummary.setScoreMode(scoreMode);
+
+            if (scoreMode == ScoreMode.NONE) {
+                // 若 scoreMode == NONE：hasScore=false，approvedScore=null
+                materialSummary.setHasScore(false);
+                materialSummary.setApprovedScore(null);
+            } else if (scoreMode == ScoreMode.DECLARED) {
+                // 若 scoreMode == DECLARED：查询 MaterialScore
+                List<MaterialScore> materialScores = materialScoreRepository.findByMaterialIdAndMaterialVersion(materialId, materialVersion);
+                if (materialScores.isEmpty()) {
+                    // 0 条：hasScore=false，approvedScore=null
+                    materialSummary.setHasScore(false);
+                    materialSummary.setApprovedScore(null);
+                } else if (materialScores.size() == 1) {
+                    // 1 条：hasScore=true，approvedScore=该条.approvedScore
+                    materialSummary.setHasScore(true);
+                    materialSummary.setApprovedScore(materialScores.get(0).getApprovedScore());
+                } else {
+                    // >1 条：抛 BizException(500) 数据异常
+                    throw new BizException(500, "multiple material scores found for material id: " + materialId + ", version: " + materialVersion);
+                }
+            }
+
+            // 计算 canCreateScore
+            boolean canCreateScore = (scoreMode == ScoreMode.DECLARED)
+                    && (aggregationResult == ApplicationReviewSummary.AggregationResult.ALL_PASS)
+                    && (materialSummary.isHasScore() == false);
+            materialSummary.setCanCreateScore(canCreateScore);
 
             materialSummaries.add(materialSummary);
         }
@@ -667,6 +733,11 @@ public class ApplicationService {
             ApplicationReviewSummary reviewSummary = getReviewSummary(applicationId);
             overview.setOverallConclusion(reviewSummary.getOverallConclusion());
             
+            // 获取 totalApprovedScore 和 missingScoringMaterialsCount（复用 getScoreSummary）
+            ApplicationScoreSummary scoreSummary = getScoreSummary(applicationId);
+            overview.setTotalApprovedScore(scoreSummary.getTotalApprovedScore());
+            overview.setMissingScoringMaterialsCount(scoreSummary.getMissingScoreMaterialIds().size());
+            
             return overview;
         }).collect(java.util.stream.Collectors.toList());
     }
@@ -706,7 +777,7 @@ public class ApplicationService {
         boolean hasMaterial = !materials.isEmpty();
         materialCheck.setPassed(hasMaterial);
         if (!hasMaterial) {
-            materialCheck.setReason("NO_MATERIAL_ATTACHED");
+            materialCheck.setReason("NO_MATERIAL");
         }
         checks.add(materialCheck);
         
@@ -722,6 +793,52 @@ public class ApplicationService {
         }
         checks.add(actionCheck);
         
+        // MATERIAL_REQUIRED_FIELDS 检查
+        ApplicationSubmissionCheckSummary.SubmissionCheckItem materialRequiredCheck = new ApplicationSubmissionCheckSummary.SubmissionCheckItem();
+        materialRequiredCheck.setCheckType(ApplicationSubmissionCheckSummary.SubmissionCheckType.MATERIAL_REQUIRED_FIELDS);
+        boolean allMaterialsComplete = true;
+        for (Material material : materials) {
+            if (material.getCategory() == null || material.getCategory().isEmpty() ||
+                material.getContent() == null || material.getContent().isEmpty() ||
+                material.getAttachmentRef() == null || material.getAttachmentRef().isEmpty()) {
+                allMaterialsComplete = false;
+                break;
+            }
+        }
+        materialRequiredCheck.setPassed(allMaterialsComplete);
+        if (!allMaterialsComplete) {
+            materialRequiredCheck.setReason("MATERIAL_INCOMPLETE");
+        }
+        checks.add(materialRequiredCheck);
+        
+        // SCORE_SEMANTICS_CONSISTENCY 检查
+        ApplicationSubmissionCheckSummary.SubmissionCheckItem scoreSemanticsCheck = new ApplicationSubmissionCheckSummary.SubmissionCheckItem();
+        scoreSemanticsCheck.setCheckType(ApplicationSubmissionCheckSummary.SubmissionCheckType.SCORE_SEMANTICS_CONSISTENCY);
+        boolean scoreSemanticsConsistent = true;
+        for (Material material : materials) {
+            ScoreMode scoreMode = material.getScoreMode();
+            BigDecimal declaredScore = material.getDeclaredScore();
+            
+            if (scoreMode == ScoreMode.NONE) {
+                // 若 scoreMode == NONE：declaredScore 必须 == BigDecimal.ZERO
+                if (declaredScore.compareTo(BigDecimal.ZERO) != 0) {
+                    scoreSemanticsConsistent = false;
+                    break;
+                }
+            } else if (scoreMode == ScoreMode.DECLARED) {
+                // 若 scoreMode == DECLARED：declaredScore 必须非空且 >= 0
+                if (declaredScore == null || declaredScore.compareTo(BigDecimal.ZERO) < 0) {
+                    scoreSemanticsConsistent = false;
+                    break;
+                }
+            }
+        }
+        scoreSemanticsCheck.setPassed(scoreSemanticsConsistent);
+        if (!scoreSemanticsConsistent) {
+            scoreSemanticsCheck.setReason("SCORE_SEMANTICS_INVALID");
+        }
+        checks.add(scoreSemanticsCheck);
+        
         // 计算 canSubmit
         boolean canSubmit = checks.stream().allMatch(ApplicationSubmissionCheckSummary.SubmissionCheckItem::getPassed);
         
@@ -730,8 +847,102 @@ public class ApplicationService {
         summary.setApplicationId(applicationId);
         summary.setCanSubmit(canSubmit);
         summary.setChecks(checks);
+        summary.setCheckedAt(LocalDateTime.now());
         
         return summary;
+    }
+
+    /**
+     * 获取申请分值汇总解释
+     * @param applicationId 申请 ID
+     * @return 分值汇总解释视图对象
+     */
+    public ApplicationScoreSummary getScoreSummary(Long applicationId) {
+        // 1. 查询 Application
+        Application application = getById(applicationId);
+
+        // 2. 查询该 Application 下所有 Material
+        List<Material> materials = materialRepository.findByApplicationId(applicationId);
+
+        // 3. 构建分值汇总
+        List<ApplicationScoreSummary.MaterialScoreItem> items = new ArrayList<>();
+        List<Long> missingScoreMaterialIds = new ArrayList<>();
+        BigDecimal totalApprovedScore = BigDecimal.ZERO;
+
+        for (Material material : materials) {
+            Long materialId = material.getId();
+            Integer materialVersion = material.getVersion();
+            BigDecimal declaredScore = material.getDeclaredScore();
+            ScoreMode scoreMode = material.getScoreMode();
+
+            // 查询该 materialId + version 对应的 MaterialScore
+            List<MaterialScore> materialScores = materialScoreRepository.findByMaterialIdAndMaterialVersion(materialId, materialVersion);
+
+            ApplicationScoreSummary.MaterialScoreItem item = new ApplicationScoreSummary.MaterialScoreItem();
+            item.setMaterialId(materialId);
+            item.setMaterialVersion(materialVersion);
+            item.setDeclaredScore(declaredScore);
+
+            if (scoreMode == ScoreMode.NONE) {
+                // 若 scoreMode == NONE：hasScore=false，approvedScore=null，不加入 missingScoreMaterialIds
+                item.setHasScore(false);
+                item.setApprovedScore(null);
+            } else if (scoreMode == ScoreMode.DECLARED) {
+                // 若 scoreMode == DECLARED：按原有逻辑处理
+                if (materialScores.isEmpty()) {
+                    // 若查到 0 条 → hasScore=false，approvedScore=null，加入 missingScoreMaterialIds
+                    item.setHasScore(false);
+                    item.setApprovedScore(null);
+                    missingScoreMaterialIds.add(materialId);
+                } else if (materialScores.size() == 1) {
+                    // 若查到 1 条 → hasScore=true，approvedScore=该条.approvedScore，累加到总分
+                    item.setHasScore(true);
+                    item.setApprovedScore(materialScores.get(0).getApprovedScore());
+                    totalApprovedScore = totalApprovedScore.add(materialScores.get(0).getApprovedScore());
+                } else {
+                    // 若查到 >1 条 → 抛 BizException(500) 明确数据异常
+                    throw new BizException(500, "multiple material scores found for material id: " + materialId + ", version: " + materialVersion);
+                }
+            }
+
+            items.add(item);
+        }
+
+        // 构建并返回分值汇总解释
+        ApplicationScoreSummary summary = new ApplicationScoreSummary();
+        summary.setApplicationId(applicationId);
+        summary.setItems(items);
+        summary.setTotalApprovedScore(totalApprovedScore);
+        summary.setMissingScoreMaterialIds(missingScoreMaterialIds);
+        summary.setGeneratedAt(LocalDateTime.now());
+
+        return summary;
+    }
+
+    /**
+     * 获取申请统一进度解释
+     * @param applicationId 申请 ID
+     * @return 申请统一进度解释视图对象
+     */
+    public ApplicationDashboard getDashboard(Long applicationId) {
+        // 1. 查询 Application（不存在 → BizException(404)）
+        Application application = getById(applicationId);
+
+        // 2. 组装 dashboard，复用现有方法
+        ApplicationReviewSummary reviewSummary = getReviewSummary(applicationId);
+        ApplicationScoreSummary scoreSummary = getScoreSummary(applicationId);
+        ApplicationSubmissionCheckSummary submissionCheck = getSubmissionCheckSummary(applicationId);
+
+        // 3. 构建并返回 dashboard
+        ApplicationDashboard dashboard = new ApplicationDashboard();
+        dashboard.setApplicationId(applicationId);
+        dashboard.setStatus(application.getStatus());
+        dashboard.setReviewSummary(reviewSummary);
+        dashboard.setScoreSummary(scoreSummary);
+        dashboard.setSubmissionCheck(submissionCheck);
+        dashboard.setGeneratedAt(LocalDateTime.now());
+
+        return dashboard;
     }
 }
 

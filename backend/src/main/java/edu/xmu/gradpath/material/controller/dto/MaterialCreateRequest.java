@@ -1,13 +1,14 @@
 package edu.xmu.gradpath.material.controller.dto;
 
-/**
- * 创建 Material 的请求 DTO
- */
-public class MaterialCreateRequest {
+import edu.xmu.gradpath.material.domain.ScoreMode;
+import java.math.BigDecimal;
 
+public class MaterialCreateRequest {
     private String category;
     private String content;
     private String attachmentRef;
+    private BigDecimal declaredScore;
+    private ScoreMode scoreMode;
 
     public String getCategory() {
         return category;
@@ -31,5 +32,21 @@ public class MaterialCreateRequest {
 
     public void setAttachmentRef(String attachmentRef) {
         this.attachmentRef = attachmentRef;
+    }
+
+    public BigDecimal getDeclaredScore() {
+        return declaredScore;
+    }
+
+    public void setDeclaredScore(BigDecimal declaredScore) {
+        this.declaredScore = declaredScore;
+    }
+
+    public ScoreMode getScoreMode() {
+        return scoreMode;
+    }
+
+    public void setScoreMode(ScoreMode scoreMode) {
+        this.scoreMode = scoreMode;
     }
 }

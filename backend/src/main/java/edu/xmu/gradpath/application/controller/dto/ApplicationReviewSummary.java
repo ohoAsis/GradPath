@@ -1,7 +1,9 @@
 package edu.xmu.gradpath.application.controller.dto;
 
 import edu.xmu.gradpath.application.domain.ApplicationStatus;
+import edu.xmu.gradpath.material.domain.ScoreMode;
 
+import java.math.BigDecimal;
 import java.util.List;
 
 /**
@@ -56,6 +58,10 @@ public class ApplicationReviewSummary {
         private AggregationResult aggregationResult;
         private BlockingReason blockingReason;
         private Integer effectiveReviewerCount;
+        private ScoreMode scoreMode;
+        private boolean hasScore;
+        private BigDecimal approvedScore;
+        private boolean canCreateScore;
 
         public Long getMaterialId() {
             return materialId;
@@ -95,6 +101,38 @@ public class ApplicationReviewSummary {
 
         public void setEffectiveReviewerCount(Integer effectiveReviewerCount) {
             this.effectiveReviewerCount = effectiveReviewerCount;
+        }
+
+        public ScoreMode getScoreMode() {
+            return scoreMode;
+        }
+
+        public void setScoreMode(ScoreMode scoreMode) {
+            this.scoreMode = scoreMode;
+        }
+
+        public boolean isHasScore() {
+            return hasScore;
+        }
+
+        public void setHasScore(boolean hasScore) {
+            this.hasScore = hasScore;
+        }
+
+        public BigDecimal getApprovedScore() {
+            return approvedScore;
+        }
+
+        public void setApprovedScore(BigDecimal approvedScore) {
+            this.approvedScore = approvedScore;
+        }
+
+        public boolean isCanCreateScore() {
+            return canCreateScore;
+        }
+
+        public void setCanCreateScore(boolean canCreateScore) {
+            this.canCreateScore = canCreateScore;
         }
     }
 

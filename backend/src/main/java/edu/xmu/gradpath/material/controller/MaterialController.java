@@ -4,6 +4,7 @@ import edu.xmu.gradpath.application.service.ApplicationService;
 import edu.xmu.gradpath.common.response.ApiResponse;
 import edu.xmu.gradpath.material.controller.dto.MaterialCreateRequest;
 import edu.xmu.gradpath.material.controller.dto.MaterialQueryResponse;
+import edu.xmu.gradpath.material.controller.dto.ReviseMaterialRequest;
 import edu.xmu.gradpath.material.domain.Material;
 import edu.xmu.gradpath.material.service.MaterialService;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -65,7 +66,9 @@ public class MaterialController {
                 applicationId,
                 request.getCategory(),
                 request.getContent(),
-                request.getAttachmentRef()
+                request.getAttachmentRef(),
+                request.getDeclaredScore(),
+                request.getScoreMode()
         );
         
         return ApiResponse.success(MaterialQueryResponse.from(material));
@@ -81,6 +84,24 @@ public class MaterialController {
     ) {
         materialService.deleteMaterial(applicationId, materialId);
         return ApiResponse.success(null);
+    }
+
+    /**
+     * 修订指定 Application 下的一条 Material
+     */
+    @PostMapping("/{applicationId}/materials/{materialId}/revise")
+    public ApiResponse<MaterialQueryResponse> reviseMaterial(
+            @PathVariable Long applicationId,
+            @PathVariable Long materialId,
+            @RequestBody ReviseMaterialRequest request
+    ) {
+        // 校验 Application 是否存在
+        applicationService.getById(applicationId);
+        
+        // 调用 MaterialService.reviseMaterial 方法
+        Material material = materialService.reviseMaterial(materialId, request);
+        
+        return ApiResponse.success(MaterialQueryResponse.from(material));
     }
 
 }

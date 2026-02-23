@@ -1,13 +1,11 @@
 package edu.xmu.gradpath.review.controller;
 
 import edu.xmu.gradpath.common.response.ApiResponse;
+import edu.xmu.gradpath.review.controller.dto.CreateReviewRequest;
 import edu.xmu.gradpath.review.controller.dto.ReviewRecordQueryResponse;
 import edu.xmu.gradpath.review.domain.ReviewRecord;
 import edu.xmu.gradpath.review.service.ReviewService;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PathVariable;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 import java.util.stream.Collectors;
@@ -40,6 +38,25 @@ public class ReviewController {
                 .collect(Collectors.toList());
         
         return ApiResponse.success(responses);
+    }
+
+    /**
+     * 为指定 Material 创建 ReviewRecord
+     */
+    @PostMapping("/{materialId}/reviews")
+    public ApiResponse<ReviewRecordQueryResponse> createReviewRecord(
+            @PathVariable Long materialId,
+            @RequestBody CreateReviewRequest request
+    ) {
+        ReviewRecord reviewRecord = reviewService.createReviewRecord(
+                materialId,
+                request.getReviewerId(),
+                request.getDecision(),
+                request.getComment(),
+                request.getMaterialVersion()
+        );
+        
+        return ApiResponse.success(ReviewRecordQueryResponse.from(reviewRecord));
     }
 
 }

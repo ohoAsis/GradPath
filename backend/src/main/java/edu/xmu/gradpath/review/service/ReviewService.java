@@ -50,16 +50,30 @@ public class ReviewService {
 
     /**
      * 创建并保存 ReviewRecord
-     * @param applicationId 申请 ID
      * @param materialId 材料 ID
      * @param reviewerId 审核员 ID
      * @param decision 审核决策
      * @param comment 审核意见
+     * @param materialVersion 材料版本（可选，不传则使用当前版本）
      * @return 保存后的 ReviewRecord
      */
     @Transactional
-    public ReviewRecord createReviewRecord(Long applicationId, Long materialId, Long reviewerId, ReviewDecision decision, String comment) {
+    public ReviewRecord createReviewRecord(Long materialId, Long reviewerId, ReviewDecision decision, String comment, Integer materialVersion) {
+        // 校验 Material 是否存在
+        Material material = materialRepository.findById(materialId)
+                .orElseThrow(() -> new BizException(404, "material not found"));
+
+        // 校验材料版本
+        Integer currentVersion = material.getVersion();
+        if (materialVersion != null && !materialVersion.equals(currentVersion)) {
+            throw new BizException(400, "material version mismatch, expected: " + currentVersion + ", provided: " + materialVersion);
+        }
+
+        // 确定使用的版本
+        Integer versionToUse = materialVersion != null ? materialVersion : currentVersion;
+
         // 校验 Application 是否存在
+        Long applicationId = material.getApplicationId();
         Application application = applicationService.getById(applicationId);
 
         // 当 Application.status 为 DRAFT、APPROVED 或 REJECTED 时，禁止创建 ReviewRecord
@@ -70,17 +84,13 @@ public class ReviewService {
             throw new BizException(400, "cannot create review record when application is in " + status.name() + " status");
         }
 
-        // 校验 Material 是否存在
-        Material material = materialRepository.findById(materialId)
-                .orElseThrow(() -> new BizException(404, "material not found"));
-
-        // 校验 Material 属于该 Application
-        if (!material.getApplicationId().equals(applicationId)) {
-            throw new BizException(400, "material does not belong to this application");
+        // 如果 Application.status 为 SUBMITTED，则启动审核流程
+        if (status == ApplicationStatus.SUBMITTED) {
+            applicationService.startReview(applicationId);
         }
 
         // 创建并保存 ReviewRecord
-        ReviewRecord reviewRecord = new ReviewRecord(materialId, material.getVersion(), reviewerId, decision, comment);
+        ReviewRecord reviewRecord = new ReviewRecord(materialId, versionToUse, reviewerId, decision, comment);
         return reviewRecordRepository.save(reviewRecord);
     }
 

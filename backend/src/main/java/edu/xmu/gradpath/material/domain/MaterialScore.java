@@ -1,6 +1,7 @@
 package edu.xmu.gradpath.material.domain;
 
 import jakarta.persistence.*;
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 /**
@@ -8,7 +9,7 @@ import java.time.LocalDateTime;
  * 表示针对某一份材料（某一版本）的一次分值裁决结果
  */
 @Entity
-@Table(name = "gp_material_score")
+@Table(name = "gp_material_score", uniqueConstraints = @UniqueConstraint(columnNames = {"material_id", "material_version"}))
 public class MaterialScore {
 
     @Id
@@ -28,28 +29,10 @@ public class MaterialScore {
     private Integer materialVersion;
 
     /**
-     * 学生申报分值
-     */
-    @Column(name = "declared_score", nullable = false)
-    private Double declaredScore;
-
-    /**
      * 审核确认分值
      */
     @Column(name = "approved_score", nullable = false)
-    private Double approvedScore;
-
-    /**
-     * 审核人 ID
-     */
-    @Column(name = "reviewer_id", nullable = false)
-    private Long reviewerId;
-
-    /**
-     * 审核说明 / 修正理由
-     */
-    @Column(columnDefinition = "text")
-    private String comment;
+    private BigDecimal approvedScore;
 
     /**
      * 裁决时间
@@ -64,14 +47,10 @@ public class MaterialScore {
     /**
      * 构造器：创建 MaterialScore
      */
-    public MaterialScore(Long materialId, Integer materialVersion, Double declaredScore, 
-                        Double approvedScore, Long reviewerId, String comment) {
+    public MaterialScore(Long materialId, Integer materialVersion, BigDecimal approvedScore) {
         this.materialId = materialId;
         this.materialVersion = materialVersion;
-        this.declaredScore = declaredScore;
         this.approvedScore = approvedScore;
-        this.reviewerId = reviewerId;
-        this.comment = comment;
         this.decidedAt = LocalDateTime.now();
     }
 
@@ -89,20 +68,8 @@ public class MaterialScore {
         return materialVersion;
     }
 
-    public Double getDeclaredScore() {
-        return declaredScore;
-    }
-
-    public Double getApprovedScore() {
+    public BigDecimal getApprovedScore() {
         return approvedScore;
-    }
-
-    public Long getReviewerId() {
-        return reviewerId;
-    }
-
-    public String getComment() {
-        return comment;
     }
 
     public LocalDateTime getDecidedAt() {
